@@ -6,13 +6,14 @@ import numpy as np
 import statsmodels.graphics.tsaplots as F
 from statsmodels.tsa.stattools import adfuller
 from statsmodels.tsa.stattools import acf, pacf
+from sarima_model import sarima_auto , sarima_fit_model 
 
-df_d=pd.read_csv("/home/jack/data_mining/PROJECT/data/day.csv")
+df_d=pd.read_csv(r"D:\University\Data_mining\data_mining\day.csv")
 d_s=df_d.sample(n=3,replace=False,random_state=42)#n=3 (show 3 rows random) repalce=Fals the sample rows are unique random_state
 #so I can generate same result again and again
 print(d_s)
 
-df_h=pd.read_csv("/home/jack/data_mining/PROJECT/data/hour.csv")
+df_h=pd.read_csv(r"D:\University\Data_mining\data_mining\hour.csv")
 d_hs=df_h.sample(n=3,replace=False,random_state=42)
 print(d_hs)
 
@@ -152,7 +153,18 @@ def divide_train_and_test(data):
     train=int(len(data)*0.8)
     train_data=data[:train]
     test_data=data[train:]
+    train_data['cnt']=train_data['cnt'].replace([np.inf,-np.inf],np.nan).dropna()
+    test_data['cnt']=train_data['cnt'].replace([np.inf,-np.inf],np.nan).dropna()
     return train_data,test_data
+
+train_data,tes_data=divide_train_and_test(encoded_d)
+
+
+best_model, best_order, best_seasonal_order=sarima_auto(train_data=train_data,feature_name='cnt')
+
+sarima_fit, predictions=sarima_fit_model(test_data=tes_data,train_data=train_data,feature_name='cnt')
+
+
 
 # plt.figure(figsize=(12,5))
 # plt.plot(df_d.index,df_d['cnt'],label="Daily Rental")
