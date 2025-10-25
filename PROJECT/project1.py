@@ -57,22 +57,34 @@ you pass the test → the data is stationary.
 """
 #check if time series is stationary or not if it fail the test add fixed time saries as "name"+dif_log
 def adf_test(series, feature_name):
-    result = adfuller(series[feature_name])
+    
+    clean_data=series[feature_name].replace([np.inf,-np.inf],np.nan).dropna()
+    
+    result = adfuller(clean_data)
     print(f"ADF Statistic: {result[0]}")
     print(f"p-value: {result[1]}")
     if result[1] < 0.05:
         print("Series is stationary")
     else:
         print("Series is not stationary")
-        series[f"{feature_name}+dif_log"]=np.log(series[feature_name].diff())
+        series[f"{feature_name}_dif_log"]=np.log(series[feature_name].diff())
     for key, value in result[4].items():
         print(f"Critical Value ({key}): {value}")
         if result[0] < value:
             print(f"At {key} level, series is stationary")
     return series
 
-           
-        
+#print(f"columns for day: {encoded_d.columns}")
+#print(f" columns for h: {encoded_h.columns}")
+encoded_d=adf_test(encoded_d,'cnt')
+# print("day data set is finished:",end="\n\n\n")
+# encoded_h=adf_test(encoded_h,'cnt')
+print("runing again to check if it stationary or not")       
+print(f"columns:{encoded_d.columns}")
+encoded_d=adf_test(encoded_d,'cnt_dif_log')
+
+print(f"daya data set columns : {encoded_d.columns}")
+print(f"hour data set columns: {encoded_h.columns}")
 
 # plt.figure(figsize=(12,5))
 # plt.plot(df_d.index,df_d['cnt'],label="Daily Rental")
