@@ -86,6 +86,20 @@ encoded_d=adf_test(encoded_d,'cnt_dif_log')
 print(f"daya data set columns : {encoded_d.columns}")
 print(f"hour data set columns: {encoded_h.columns}")
 
+def check_acf_and_pacf(data, feature, lag):
+    fig, axes = plt.subplots(2, 1, figsize=(10, 8))
+    F.plot_acf(data[feature], lags=lag, ax=axes[0])
+    axes[0].set_title("Autocorrelation (Full) comparing each peak/low")
+    F.plot_pacf(data[feature], lags=lag, ax=axes[1], method='ywm')
+    axes[1].set_title("Partial Autocorrelation comparing peaks and lows truly matters")
+    plt.tight_layout()
+    plt.show()
+
+
+
+check_acf_and_pacf(encoded_d,'cnt_dif_log',50)
+check_acf_and_pacf(encoded_h,'cnt',lag=50)
+
 # plt.figure(figsize=(12,5))
 # plt.plot(df_d.index,df_d['cnt'],label="Daily Rental")
 # plt.title("daily rental")
