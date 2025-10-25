@@ -5,12 +5,12 @@ import seaborn as sns
 import numpy as np
 import statsmodels.graphics.tsaplots as F
 
-df_d=pd.read_csv("./data/day.csv")
+df_d=pd.read_csv(r"D:\University\Data_mining\data_mining\day.csv")
 d_s=df_d.sample(n=3,replace=False,random_state=42)#n=3 (show 3 rows random) repalce=Fals the sample rows are unique random_state
 #so I can generate same result again and again
 print(d_s)
 
-df_h=pd.read_csv("./data/hour.csv")
+df_h=pd.read_csv(r"D:\University\Data_mining\data_mining\hour.csv")
 d_hs=df_h.sample(n=3,replace=False,random_state=42)
 print(d_hs)
 
@@ -33,12 +33,46 @@ print(df_h.head())
 print(f"info: {df_d.info()}")
 print(f"description {df_h.describe()}")
 
+print(f"duplicate values for date: {df_d.duplicated().sum()}")
+print(f"duplicate values for houre: {df_h.duplicated().sum()}")
+
+
+"""Encoding cathegorical data with one hot encoding """
+
+encoded_h = pd.get_dummies(df_h, columns=['yr','hr','season','mnth','weekday','weathersit'
+])
+encoded_d = pd.get_dummies(df_d, columns=['yr','season','mnth','weekday','weathersit'
+])
+print(encoded_h)
+
+
+# sort_data=sorted(encoded_d.index,reverse=True)
+# print(f"here is the biggest value {sort_data[0]}")
+
+
+# "finding out whether features are cathegorical "
+# def checking_colums(feature):
+#     unique,value=np.unique(df_d[feature],return_counts=True)
+#     unique_dic={int(u):int(v)for u,v in zip(unique,value)}
+#     print(f"{feature} have {unique_dic}")
+#     #print(f"checking year {np.unique(df_h['yr'],return_counts=True)}")
+# checking_colums('yr')
+"""
+columns=list(df_d.columns)
+for c in columns:
+    checking_colums(c)
+
+print(f"year column {df_d["yr"].head(50)}")
+print(f"year column {df_h["yr"].tail(50)}")
+"""
+
 plt.figure(figsize=(12,5))
-plt.plot(df_d.index,df_d['cnt'],label="Daily Rental")
+plt.plot(encoded_d.index,encoded_d ['cnt'],label="Daily Rental")
 plt.title("daily rental")
 plt.xlabel("days")
 plt.ylabel("rencount")
 plt.show()
+
 
 # time seriouse decompostion
 
@@ -93,3 +127,4 @@ plt.figure(figsize=(10,4))
 F.plot_pacf(df_d["cnt"],lags=50)
 plt.title("Partial Autocorrilation comparing peaks and lows truly matters")#Is different between today and n day before is truly matters then show it
 plt.show()
+#-------------------------------------------------
