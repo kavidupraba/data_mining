@@ -5,13 +5,15 @@ import seaborn as sns
 import numpy as np
 import statsmodels.graphics.tsaplots as F
 from statsmodels.tsa.stattools import adfuller
+from statsmodels.tsa.stattools import acf, pacf
+from sarima_model import sarima_auto , sarima_fit_model 
 
-df_d=pd.read_csv("/home/jack/data_mining/PROJECT/data/day.csv")
+df_d=pd.read_csv(r"D:\University\Data_mining\data_mining\day.csv")
 d_s=df_d.sample(n=3,replace=False,random_state=42)#n=3 (show 3 rows random) repalce=Fals the sample rows are unique random_state
 #so I can generate same result again and again
 print(d_s)
 
-df_h=pd.read_csv("/home/jack/data_mining/PROJECT/data/hour.csv")
+df_h=pd.read_csv(r"D:\University\Data_mining\data_mining\hour.csv")
 d_hs=df_h.sample(n=3,replace=False,random_state=42)
 print(d_hs)
 
@@ -40,14 +42,14 @@ print(f"duplicate values for houre: {df_h.duplicated().sum()}")
 
 
 """Encoding cathegorical data with one hot encoding """
+def encoder(df_h,df_d):
+    encoded_h = pd.get_dummies(df_h, columns=['yr','hr','season','mnth','weekday','weathersit'
+    ])
+    encoded_d = pd.get_dummies(df_d, columns=['yr','season','mnth','weekday','weathersit'
+    ])
+    return encoded_d,encoded_h
 
-encoded_h = pd.get_dummies(df_h, columns=['yr','hr','season','mnth','weekday','weathersit'
-])
-encoded_d = pd.get_dummies(df_d, columns=['yr','season','mnth','weekday','weathersit'
-])
-print(encoded_h)
-
-
+encoded_d,encoded_h=encoder(df_d=df_d,df_h=df_h)
 """
 Think of result[0] (ADF stat) as your exam score
 and value (critical value) as the pass mark at each level.
@@ -56,10 +58,10 @@ If your score (ADF stat) is lower (more negative) than the pass mark (critical v
 you pass the test → the data is stationary.
 """
 #check if time series is stationary or not if it fail the test add fixed time saries as "name"+dif_log
-def adf_test(series, feature_name):
+def adf_test(series, feature_name='cnt'):
     
     clean_data=series[feature_name].replace([np.inf,-np.inf],np.nan).dropna()
-    
+    I=0
     result = adfuller(clean_data)
     print(f"ADF Statistic: {result[0]}")
     print(f"p-value: {result[1]}")
@@ -68,37 +70,101 @@ def adf_test(series, feature_name):
     else:
         print("Series is not stationary")
         series[f"{feature_name}_dif_log"]=np.log(series[feature_name].diff())
+        I+=1
     for key, value in result[4].items():
         print(f"Critical Value ({key}): {value}")
         if result[0] < value:
             print(f"At {key} level, series is stationary")
-    return series
+    print(f"new column name is {feature_name}_dif_log")
+    return series,I
 
 #print(f"columns for day: {encoded_d.columns}")
 #print(f" columns for h: {encoded_h.columns}")
-encoded_d=adf_test(encoded_d,'cnt')
+encoded_d,I=adf_test(encoded_d,'cnt')
 # print("day data set is finished:",end="\n\n\n")
 # encoded_h=adf_test(encoded_h,'cnt')
 print("runing again to check if it stationary or not")       
 print(f"columns:{encoded_d.columns}")
-encoded_d=adf_test(encoded_d,'cnt_dif_log')
+encoded_d,I=adf_test(encoded_d,'cnt_dif_log')
 
 print(f"daya data set columns : {encoded_d.columns}")
 print(f"hour data set columns: {encoded_h.columns}")
 
-def check_acf_and_pacf(data, feature, lag):
+
+
+def check_acf_and_pacf(name_of_data,data, feature='cnt', lag=50):
+    series = data[feature].dropna()
+    
+    # --- Compute ACF and PACF values ---
+    acf_vals, confint_acf = acf(series, nlags=lag, alpha=0.05)
+    pacf_vals, confint_pacf = pacf(series, nlags=lag, alpha=0.05, method='ywm')
+
+    # --- Determine where they become insignificant (first lag where values stay within CI) ---
+    def find_cutoff(values, confint):
+        for i in range(1, len(values)):
+            lower, upper = confint[i]
+            if lower <= values[i] <= upper:
+                # Found the first lag that falls within CI (insignificant)
+                return i
+        return None
+
+    acf_cutoff = find_cutoff(acf_vals, confint_acf)
+    pacf_cutoff = find_cutoff(pacf_vals, confint_pacf)
+
+    # --- Plot setup ---
     fig, axes = plt.subplots(2, 1, figsize=(10, 8))
-    F.plot_acf(data[feature], lags=lag, ax=axes[0])
+
+    # ACF Plot
+    F.plot_acf(series, lags=lag, ax=axes[0])
     axes[0].set_title("Autocorrelation (Full) comparing each peak/low")
-    F.plot_pacf(data[feature], lags=lag, ax=axes[1], method='ywm')
+    axes[0].set_xlabel("Lag")
+    axes[0].set_ylabel("ACF")
+    if acf_cutoff:
+        axes[0].axvline(x=acf_cutoff, color='red', linestyle='--', label=f'ACF dies at lag {acf_cutoff}')
+        axes[0].legend()
+
+    # PACF Plot
+    F.plot_pacf(series, lags=lag, ax=axes[1], method='ywm')
     axes[1].set_title("Partial Autocorrelation comparing peaks and lows truly matters")
+    axes[1].set_xlabel("Lag")
+    axes[1].set_ylabel("PACF")
+    if pacf_cutoff:
+        axes[1].axvline(x=pacf_cutoff, color='red', linestyle='--', label=f'PACF dies at lag {pacf_cutoff}')
+    elif acf_cutoff:
+        axes[1].axvline(x=acf_cutoff, color='red', linestyle='--', label=f'Compare till lag {acf_cutoff}')
+    axes[1].legend()
+
     plt.tight_layout()
+    plt.savefig(f"{name_of_data}.png",dpi=300)
     plt.show()
 
+    # --- Return cutoff summary ---
+    print(f"Detected ACF cutoff (q): {acf_cutoff}")
+    print(f"Detected PACF cutoff (p): {pacf_cutoff}")
+    return acf_cutoff, pacf_cutoff
 
 
-check_acf_and_pacf(encoded_d,'cnt_dif_log',50)
-check_acf_and_pacf(encoded_h,'cnt',lag=50)
+
+q,p=check_acf_and_pacf("day",encoded_d,'cnt_dif_log',50)
+q,p=check_acf_and_pacf("hour",encoded_h,'cnt',lag=50)
+
+
+def divide_train_and_test(data):
+    train=int(len(data)*0.8)
+    train_data=data[:train]
+    test_data=data[train:]
+    train_data['cnt']=train_data['cnt'].replace([np.inf,-np.inf],np.nan).dropna()
+    test_data['cnt']=train_data['cnt'].replace([np.inf,-np.inf],np.nan).dropna()
+    return train_data,test_data
+
+train_data,tes_data=divide_train_and_test(encoded_d)
+
+
+best_model, best_order, best_seasonal_order=sarima_auto(train_data=train_data,feature_name='cnt')
+
+sarima_fit, predictions=sarima_fit_model(test_data=tes_data,train_data=train_data,feature_name='cnt')
+
+
 
 # plt.figure(figsize=(12,5))
 # plt.plot(df_d.index,df_d['cnt'],label="Daily Rental")
