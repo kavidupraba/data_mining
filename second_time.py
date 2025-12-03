@@ -27,6 +27,10 @@ from sklearn.cluster import KMeans
 from sklearn.metrics import silhouette_score
 from scipy.spatial.distance import pdist, squareform
 from pyod.models.auto_encoder import AutoEncoder
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import LSTM, GRU, Dense
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.metrics import mean_squared_error, mean_absolute_error
 try:
     from dtw import dtw
     DTW_AVAILABLE = True
@@ -281,11 +285,11 @@ def check_stationary(data, logger, name="Series"):
         print(f"    {key}: {value:.3f}")
     
     if result[1] <= 0.05:
-        print(f"  ✓ Result: STATIONARY (p-value <= 0.05)")
+        print(f"   Result: STATIONARY (p-value <= 0.05)")
         logger.info(f"{name} is stationary")
         is_stationary = True
     else:
-        print(f"  ✗ Result: NON-STATIONARY (p-value > 0.05)")
+        print(f"   Result: NON-STATIONARY (p-value > 0.05)")
         logger.info(f"{name} is not stationary")
         is_stationary = False
     
@@ -1562,6 +1566,231 @@ def plot_rush_hours(time_df):
     plt.tight_layout()
     plt.show()
 
+
+def Preparing_data(data,season_d,test_size):
+    "preparing train and test data"
+    #dividing train and test data
+    train=data[:-test_size]
+    test=data[-test_size:]
+    # --- Prepare training data (past 7 days → next day) ---
+    X_train, y_train = [], []
+    for i in range(d, len(train)):
+        X_train.append(train_scaled[i-season_d:i, 0])  # 14 previous values
+        y_train.append(train_scaled[i, 0])      # next value
+
+    X_train, y_train = np.array(X_train), np.array(y_train)
+    X_train = np.reshape(X_train, (X_train.shape[0], X_train.shape[1], 1))
+
+    # --- Prepare test data ---
+    inputs = data[len(data) - len(test) - season_d:][feature].values
+    inputs = inputs.reshape(-1, 1)
+    inputs = scaler.transform(inputs)
+
+    X_test = []
+    for i in range(season_d, len(inputs)):
+        X_test.append(inputs[i-season_d:i, 0])
+
+    X_test = np.array(X_test)
+    X_test = np.reshape(X_test, (X_test.shape[0], X_test.shape[1], 1))
+    return X_train,X_test,y_train
+
+def evaluate_forecast(actual, predicted):
+    """Calculate error metrics"""
+    mse = mean_squared_error(actual, predicted)
+    rmse = np.sqrt(mse)
+    mae = mean_absolute_error(actual, predicted)
+    mape = np.mean(np.abs((actual - predicted) / actual)) * 100
+    
+    return {
+        'mse': mse,
+        'rmse': rmse,
+        'mae': mae,
+        'mape': mape
+    }
+
+
+def Preparing_data(data, season_d, test_size, feature='cnt'):
+    """Preparing train and test data for LSTM/GRU"""
+    
+    # Scale the data
+    scaler = MinMaxScaler(feature_range=(0, 1))
+    scaled_data = scaler.fit_transform(data[[feature]].values)
+    
+    # Split train/test
+    train_data = scaled_data[:-test_size]
+    test_data = scaled_data[-test_size:]
+    
+    # --- Prepare training data (past season_d days → next day) ---
+    X_train, y_train = [], []
+    for i in range(season_d, len(train_data)):
+        X_train.append(train_data[i-season_d:i, 0])
+        y_train.append(train_data[i, 0])
+    
+    X_train, y_train = np.array(X_train), np.array(y_train)
+    X_train = np.reshape(X_train, (X_train.shape[0], X_train.shape[1], 1))
+    
+    # --- Prepare test data ---
+    # Need to include season_d previous values before test set
+    inputs = scaled_data[len(scaled_data) - len(test_data) - season_d:]
+    
+    X_test = []
+    for i in range(season_d, len(inputs)):
+        X_test.append(inputs[i-season_d:i, 0])
+    
+    X_test = np.array(X_test)
+    X_test = np.reshape(X_test, (X_test.shape[0], X_test.shape[1], 1))
+    
+    # Get actual test values for comparison
+    y_test = data[feature].values[-test_size:]
+    
+    return X_train, X_test, y_train, y_test, scaler
+
+
+def predicting(X_test, model, scaler):
+    """Predicting forecast values"""
+    predictions = model.predict(X_test)
+    predictions = scaler.inverse_transform(predictions)
+    return predictions.flatten()
+
+
+
+def Plots_for_learning_models(train, test, predictions, feature, model_name):
+    """Plots for prediction result"""
+
+    fig, axi = plt.subplots(2, 1, figsize=(20, 20))
+
+    # ---------------- TOP PLOT: Full view ----------------
+    axi[0].plot(train.index, train[feature], label='Train', alpha=0.7)
+    axi[0].plot(test.index, test[feature], label='Actual Test', marker='o', markersize=5, color='green')
+    axi[0].plot(test.index, predictions, label=f'{model_name} Predictions', marker='x', markersize=5, color='red')
+
+    axi[0].set_xlabel("Date", fontsize=12)
+    axi[0].set_ylabel(f"Bike Rentals ({feature})", fontsize=12)
+    axi[0].set_title(f"{model_name} Forecast on {feature}", fontsize=14, fontweight='bold')
+    axi[0].legend()
+    axi[0].grid(True, alpha=0.3)
+
+    # ---------------- BOTTOM PLOT: Zoom in ----------------
+    axi[1].plot(test.index, test[feature], label='Actual Test', marker='o', markersize=6, color="green")
+    axi[1].plot(test.index, predictions, label=f'{model_name} Predictions', marker='x', markersize=6, color='red')
+
+    axi[1].set_xlabel("Date", fontsize=12)
+    axi[1].set_ylabel(f"Bike Rentals ({feature})", fontsize=12)
+    axi[1].set_title(f"{model_name} Zoomed Forecast on {feature}", fontsize=14, fontweight='bold')
+    axi[1].legend()
+    axi[1].grid(True, alpha=0.3)
+
+    fig.tight_layout()
+
+    plt.savefig(f"{model_name.lower()}_forecast.png", dpi=300, bbox_inches='tight')
+    plt.show()
+
+
+    plt.savefig(f'{model_name.lower()}_forecast.png', dpi=300, bbox_inches='tight')
+
+
+
+def Learning_models(data, season_d, test_size, feature='cnt', logger=None):
+    """Learning Models with timing"""
+    
+    if logger:
+        logger.info("="*60)
+        logger.info("STARTING DEEP LEARNING MODELS")
+        logger.info("="*60)
+    
+    # Prepare data
+    X_train, X_test, y_train, y_test, scaler = Preparing_data(
+        data, season_d, test_size, feature
+    )
+    
+    print(f"X_train shape: {X_train.shape}")
+    print(f"X_test shape: {X_test.shape}")
+    print(f"y_train shape: {y_train.shape}")
+    
+    # Get train and test DataFrames for plotting
+    train = data[:-test_size]
+    test = data[-test_size:]
+    
+    # ========================================
+    # GRU MODEL
+    # ========================================
+    if logger:
+        logger.info("Training GRU model...")
+    
+    start_gru = time.perf_counter()
+    
+    model_G = Sequential()
+    model_G.add(GRU(100, return_sequences=True, input_shape=(X_train.shape[1], 1)))
+    model_G.add(GRU(100))
+    model_G.add(Dense(1))
+    model_G.compile(loss='mean_squared_error', optimizer='adam')
+    
+    model_G.fit(X_train, y_train, epochs=30, batch_size=32, verbose=1)
+    
+    # Predict
+    prediction_G = predicting(X_test, model_G, scaler)
+    
+    end_gru = time.perf_counter()
+    time_gru = end_gru - start_gru
+    
+    # Calculate errors
+    error_gru = evaluate_forecast(y_test, prediction_G)
+    
+    if logger:
+        logger.info(f"GRU completed in {time_gru:.2f}s")
+        logger.info(f"GRU MAPE: {error_gru['mape']:.2f}%")
+    
+    # Plot GRU results
+    Plots_for_learning_models(train, test, prediction_G, feature, "GRU")
+    
+    # ========================================
+    # LSTM MODEL
+    # ========================================
+    if logger:
+        logger.info("Training LSTM model...")
+    
+    start_lstm = time.perf_counter()
+    
+    model_L = Sequential()
+    model_L.add(LSTM(units=100, return_sequences=True, input_shape=(X_train.shape[1], 1)))
+    model_L.add(LSTM(units=100))
+    model_L.add(Dense(1))
+    model_L.compile(loss='mean_squared_error', optimizer='adam')
+    
+    model_L.fit(X_train, y_train, epochs=30, batch_size=32, verbose=1)
+    
+    # Predict
+    prediction_L = predicting(X_test, model_L, scaler)
+    
+    end_lstm = time.perf_counter()
+    time_lstm = end_lstm - start_lstm
+    
+    # Calculate errors
+    error_lstm = evaluate_forecast(y_test, prediction_L)
+    
+    if logger:
+        logger.info(f"LSTM completed in {time_lstm:.2f}s")
+        logger.info(f"LSTM MAPE: {error_lstm['mape']:.2f}%")
+    
+    # Plot LSTM results
+    Plots_for_learning_models(train, test, prediction_L, feature, "LSTM")
+    
+    # ========================================
+    # RETURN RESULTS
+    # ========================================
+    return {
+        "GRU_pred": prediction_G,
+        "LSTM_pred": prediction_L,
+        "GRU_error": error_gru,
+        "LSTM_error": error_lstm,
+        "GRU_time": time_gru,
+        "LSTM_time": time_lstm,
+        "y_test": y_test
+    }
+
+
+
+    
 def main():
     logger = setting_up_logger()
     # Read data
@@ -1853,47 +2082,137 @@ def main():
                f"Optimal K={main_results['optimal_k']}, "
                f"Anomalies={len(anomalies)}")
     
+
+  
+    # RUN ALL MODELS
+ 
     
-        # Walk-forward validation with auto_arima
-    predictions, actuals, a_metrics,time_took_arm = walk_forward_arima(
-        data=day_clean[['cnt']],  # Only need 'cnt' column
+    # Statistical Models
+    predictions_arima, actuals, a_metrics, time_took_arm = walk_forward_arima(
+        data=day_clean[['cnt']],
         periods=day_periods,
         logger=logger,
         name='day',
-        test_size=50  # Last 50 days for testing
-        )
-    print(a_metrics)
-                    
-    prediction,actuals,e_metrics,time_took_eps=walk_forward_exponentialsmoothing(day_clean, 50, logger)
-
-    print(e_metrics)
+        test_size=50
+    )
     
+    prediction_exp, actuals_exp, e_metrics, time_took_eps = walk_forward_exponentialsmoothing(
+        day_clean, 50, logger
+    )
     
- 
-     
+    # Deep Learning Models
+    result = Learning_models(
+        data=day_clean[['cnt']], 
+        season_d=7, 
+        test_size=50, 
+        feature='cnt',
+        logger=logger
+    )
+    
 
-    #analyze_anomalies(day_clean, anomalies, logger)
+    # COMPREHENSIVE MODEL COMPARISON PLOT
 
-    #predictions_sarima,actuals_sarima,metrics_sarima=walk_forward_auto_sarima(data=day_df,logger=logger)
-    #
-  #
-    #logger.info("\n" + "="*60)
-    #logger.info("ANALYZING HOURLY DATA")
-    #logger.info("="*60)
-    #
-    #logger.info("Detecting seasonality for hourly dataset")
-    #time_periods = detect_seasonality(logger, time_df['cnt'],name='hour')
-    #
-    #stationary_or_not = check_stationary(time_df['cnt'], logger=logger, name="Hourly_Data")
-    #
-    #predictions_h, actuals_h, metrics_h = walk_forward_arima(
-        #data=time_df[['cnt']],
-        #periods=time_periods,
-        #logger=logger,
-        #name='hour',
-#test_size=5  # Last week for testing
-    #)
+    
+    # Prepare data for plotting
+    models = ['ARIMA', 'Exp-Smoothing', 'GRU', 'LSTM']
+    mapes = [
+        a_metrics["mape"], 
+        e_metrics["mape"],
+        result["GRU_error"]["mape"],
+        result["LSTM_error"]["mape"]
+    ]
+    times = [
+        time_took_arm, 
+        time_took_eps,
+        result["GRU_time"],
+        result["LSTM_time"]
+    ]
+    
+    # Define colors for each model type
+    colors_mape = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444']
+    colors_time = ['#60a5fa', '#34d399', '#fbbf24', '#f87171']
+    
+    # Create figure with 2 subplots
+    fig, axes = plt.subplots(2, 1, figsize=(14, 12))
+    
 
+    # Plot 1: MAPE Comparison
+
+    bars1 = axes[0].bar(models, mapes, color=colors_mape, 
+                        edgecolor='black', linewidth=2, alpha=0.8)
+    axes[0].set_ylabel('MAPE (%)', fontsize=13, fontweight='bold')
+    axes[0].set_title('Model Accuracy Comparison (Lower is Better)', 
+                      fontsize=15, fontweight='bold')
+    axes[0].grid(axis='y', alpha=0.3)
+    axes[0].set_ylim(0, max(mapes) * 1.2)
+    
+    # Add value labels on bars
+    for bar, mape in zip(bars1, mapes):
+        height = bar.get_height()
+        axes[0].text(bar.get_x() + bar.get_width()/2, height + 1,
+                     f'{mape:.2f}%', ha='center', va='bottom', 
+                     fontsize=11, fontweight='bold')
+    
+    # Add horizontal line for "good" threshold
+    axes[0].axhline(y=20, color='red', linestyle='--', alpha=0.5, 
+                    label='20% Threshold (Good)')
+    axes[0].legend(loc='upper right')
+    
+    # ========================================
+    # Plot 2: Time Comparison
+    # ========================================
+    bars2 = axes[1].bar(models, times, color=colors_time, 
+                        edgecolor='black', linewidth=2, alpha=0.8)
+    axes[1].set_ylabel('Time (seconds)', fontsize=13, fontweight='bold')
+    axes[1].set_xlabel('Models', fontsize=13, fontweight='bold')
+    axes[1].set_title('Computation Time Comparison (Lower is Better)', 
+                      fontsize=15, fontweight='bold')
+    axes[1].grid(axis='y', alpha=0.3)
+    axes[1].set_ylim(0, max(times) * 1.2)
+    
+    # Add value labels on bars
+    for bar, time_val in zip(bars2, times):
+        height = bar.get_height()
+        axes[1].text(bar.get_x() + bar.get_width()/2, height + 5,
+                     f'{time_val:.2f}s', ha='center', va='bottom', 
+                     fontsize=11, fontweight='bold')
+    
+    plt.tight_layout()
+    plt.savefig('comprehensive_model_comparison.png', dpi=300, bbox_inches='tight')
+    plt.show()
+    
+    # ========================================
+    # PRINT SUMMARY TABLE
+    # ========================================
+    print("\n" + "="*80)
+    print("COMPREHENSIVE MODEL PERFORMANCE SUMMARY")
+    print("="*80)
+    print(f"{'Model':<20} {'MAPE (%)':<15} {'RMSE':<15} {'Time (s)':<15}")
+    print("-"*80)
+    print(f"{'ARIMA':<20} {a_metrics['mape']:<15.2f} {a_metrics['rmse']:<15.2f} {time_took_arm:<15.2f}")
+    print(f"{'Exp-Smoothing':<20} {e_metrics['mape']:<15.2f} {e_metrics['rmse']:<15.2f} {time_took_eps:<15.2f}")
+    print(f"{'GRU':<20} {result['GRU_error']['mape']:<15.2f} {result['GRU_error']['rmse']:<15.2f} {result['GRU_time']:<15.2f}")
+    print(f"{'LSTM':<20} {result['LSTM_error']['mape']:<15.2f} {result['LSTM_error']['rmse']:<15.2f} {result['LSTM_time']:<15.2f}")
+    print("="*80)
+    
+    # Find best model
+    best_mape_idx = np.argmin(mapes)
+    best_time_idx = np.argmin(times)
+    
+    print(f"\n✓ BEST ACCURACY: {models[best_mape_idx]} (MAPE = {mapes[best_mape_idx]:.2f}%)")
+    print(f"✓ FASTEST MODEL: {models[best_time_idx]} (Time = {times[best_time_idx]:.2f}s)")
+    print("="*80)
+    
+    # Log results
+    logger.info("="*60)
+    logger.info("MODEL COMPARISON COMPLETE")
+    logger.info("="*60)
+    logger.info(f"Best accuracy: {models[best_mape_idx]} ({mapes[best_mape_idx]:.2f}% MAPE)")
+    logger.info(f"Fastest: {models[best_time_idx]} ({times[best_time_idx]:.2f}s)")
+
+    print(f"culter results keys {clustering_results.keys()}")
+    logger.info(f"clustering_results.keys()")
+    logger.info(f"clustering_results.items()")
 
 if __name__ == '__main__':
     main()
