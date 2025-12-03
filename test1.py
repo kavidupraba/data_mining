@@ -1,4 +1,5 @@
 from statsmodels.tsa.seasonal import seasonal_decompose
+from statsmodels.tsa.arima.model import ARIMA
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
